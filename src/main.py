@@ -48,13 +48,14 @@ def main(folder_path: str) -> None:
         .appName("data-financial") \
         .config("spark.driver.memory", "2g") \
         .config("spark.executor.memory", "2g") \
+        .config("spark.memory.fraction", "0.1") \
+        .config("spark.memory.offHeap.enabled", "true") \
+        .config("spark.memory.offHeap.size", "1g") \
         .config("spark.sql.adaptive.enabled", "true") \
         .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
         .config("spark.sql.adaptive.skew.enabled", "true") \
         .config("spark.sql.autoBroadcastJoinThreshold", "10MB") \
         .config("spark.sql.shuffle.partitions", "100") \
-        .config("spark.memory.offHeap.enabled", "true") \
-        .config("spark.memory.offHeap.size", "1g") \
         .getOrCreate()
     
     df_transactions: DataFrame = load_transactions(
