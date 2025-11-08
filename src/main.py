@@ -46,11 +46,11 @@ def main(folder_path: str) -> None:
     # Create a Spark session
     spark: SparkSession = SparkSession.builder \
         .appName("data-financial") \
-        .config("spark.driver.memory", "2g") \
-        .config("spark.executor.memory", "2g") \
-        .config("spark.memory.fraction", "0.1") \
+        .config("spark.driver.memory", "8g") \
+        .config("spark.executor.memory", "8g") \
+        .config("spark.memory.fraction", "0.6") \
         .config("spark.memory.offHeap.enabled", "true") \
-        .config("spark.memory.offHeap.size", "1g") \
+        .config("spark.memory.offHeap.size", "7.5g") \
         .config("spark.sql.adaptive.enabled", "true") \
         .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
         .config("spark.sql.adaptive.skew.enabled", "true") \
