@@ -7,12 +7,11 @@ from pyspark.sql import Row
 from pyspark.sql.dataframe import DataFrame
 import os
 
-CURRENCIES: dict[str, Optional[str]] = {
-    "Yen": "JPY", "UK Pound": "GBP", "Australian Dollar": "AUD",
-    "Saudi Riyal": None, "Mexican Peso": "MXN", "Shekel": "ILS",
-    "Yuan": "CNY", "Canadian Dollar": "CAD", "Euro": "EUR",
-    "Rupee": "INR", "Swiss Franc": "CHF", "US Dollar": "USD",
-    "Brazil Real": "BRL", "Bitcoin": None, "Ruble": "RUB"
+CURRENCIES: dict[str, str] = {
+    'JPY': 'Yen', 'GBP': 'UK Pound', 'AUD': 'Australian Dollar', 'MXN': 'Mexican Peso',
+    'ILS': 'Shekel', 'CNY': 'Yuan', 'CAD': 'Canadian Dollar', 'EUR': 'Euro',
+    'INR': 'Rupee', 'CHF': 'Swiss Franc', 'USD': 'US Dollar', 'BRL': 'Brazil Real',
+    'RUB': 'Ruble'
 }
 
 def load_transactions(file_path: str, spark: SparkSession) -> DataFrame:
@@ -28,20 +27,28 @@ def load_transactions(file_path: str, spark: SparkSession) -> DataFrame:
 
     df_date: DataFrame = df_renamed.withColumn("date_trans", F.to_date("date_trans", "yyyy/MM/dd HH:mm"))
 
-    return df_date
+    df_rowid: DataFrame = df_date.withColumn("rowid", F.monotonically_increasing_id())
+
+    return df_rowid
 
 def load_exchanges(file_path: str, spark: SparkSession, row: Row) -> DataFrame:
     df: DataFrame = spark.read.csv(path=file_path, header=True, inferSchema=True)
 
-    target_columns: list[str] = [v for v in CURRENCIES.values() if v != None]
+    target_columns: list[str] = [v for v in CURRENCIES.keys()]
     target_columns.append("Date")
 
     df_selected: DataFrame = df.filter((df["Date"] >= row["min_date"]) & (df["Date"] <= row["max_date"])).select(target_columns)
 
-    return df_selected
+    df_renamed: DataFrame = df_selected.withColumnsRenamed(CURRENCIES)
+
+    return df_renamed
     
 def main(folder_path: str) -> None:
     raw_folder: str = os.path.join(folder_path, "raw")
+    transformed_folder: str = os.path.join(folder_path, "transformed")
+
+    if os.path.exists(transformed_folder) == False:
+        os.mkdir(transformed_folder)
 
     # Create a Spark session
     spark: SparkSession = SparkSession.builder \
@@ -50,7 +57,7 @@ def main(folder_path: str) -> None:
         .config("spark.executor.memory", "8g") \
         .config("spark.memory.fraction", "0.6") \
         .config("spark.memory.offHeap.enabled", "true") \
-        .config("spark.memory.offHeap.size", "7.5g") \
+        .config("spark.memory.offHeap.size", "7g") \
         .config("spark.sql.adaptive.enabled", "true") \
         .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
         .config("spark.sql.adaptive.skew.enabled", "true") \
@@ -61,7 +68,7 @@ def main(folder_path: str) -> None:
     df_transactions: DataFrame = load_transactions(
         file_path=os.path.join(raw_folder, "HI-Medium_Trans.csv"),
         spark=spark
-    )
+    ).limit(50)
 
     df_exchanges: DataFrame = load_exchanges(
         file_path=os.path.join(raw_folder, "currency_exchange_rates.csv"),
@@ -72,18 +79,44 @@ def main(folder_path: str) -> None:
         ).collect()[0]
     )
 
-    df_joined: DataFrame = df_transactions.join(
-        df_exchanges,
-        df_transactions["date_trans"] <= df_exchanges["Date"],
-        "left"
-    )
+    batch_size = 2000
+    batches = [i * batch_size for i in range(0, (df_transactions.count() // batch_size) + 1)]
 
     window_spec: WindowSpec = Window.partitionBy("date_trans", "account_to", "account_for").orderBy("Date")
-    df_partioned: DataFrame = df_joined.withColumn("rn", F.row_number().over(window_spec)) \
-        .filter(F.col("rn") == 1) \
-        .drop("rn")
-    
-    df_partioned.show(5)
+    case_expr = F.coalesce(*[
+        F.when(F.col("payment_currency") == col_name, F.col(col_name))
+        for col_name in CURRENCIES.values()
+    ])
+
+    for start_id in batches:
+        end_id = start_id + batch_size
+
+        df_batch = df_transactions.filter(
+            (df_transactions["rowid"] >= start_id) & (df_transactions["rowid"] < end_id)
+        ).drop("rowid")
+
+        df_joined: DataFrame = df_batch.join(
+            df_exchanges,
+            df_batch["date_trans"] <= df_exchanges["Date"],
+            "left"
+        )
+
+        df_partitioned: DataFrame = df_joined.withColumn("rn", F.row_number().over(window_spec)) \
+            .filter(F.col("rn") == 1) \
+            .drop("rn") \
+            .drop("Date")
+
+        df_computed: DataFrame = df_partitioned.withColumn(
+            "exchange",
+            F.col("amount_paid") * case_expr
+        ).drop(*[column for column in CURRENCIES.values()])
+
+        df_computed.write \
+            .mode("append") \
+            .option("compression", "zstd") \
+            .parquet(transformed_folder)
+        
+        df_computed.unpersist()
 
 if __name__ == "__main__":
     args: list[str] = sys.argv[1:]
