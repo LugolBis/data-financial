@@ -1,5 +1,4 @@
 import sys
-from typing import Optional
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql import Window, WindowSpec
@@ -68,7 +67,7 @@ def main(folder_path: str) -> None:
     df_transactions: DataFrame = load_transactions(
         file_path=os.path.join(raw_folder, "HI-Medium_Trans.csv"),
         spark=spark
-    ).limit(50)
+    )
 
     df_exchanges: DataFrame = load_exchanges(
         file_path=os.path.join(raw_folder, "currency_exchange_rates.csv"),
@@ -79,7 +78,7 @@ def main(folder_path: str) -> None:
         ).collect()[0]
     )
 
-    batch_size = 2000
+    batch_size = 500_000
     batches = [i * batch_size for i in range(0, (df_transactions.count() // batch_size) + 1)]
 
     window_spec: WindowSpec = Window.partitionBy("date_trans", "account_to", "account_for").orderBy("Date")
@@ -113,7 +112,6 @@ def main(folder_path: str) -> None:
 
         df_computed.write \
             .mode("append") \
-            .option("compression", "zstd") \
             .parquet(transformed_folder)
         
         df_computed.unpersist()
