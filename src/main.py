@@ -81,18 +81,19 @@ def main(folder_path: str) -> None:
     batch_size = 500_000
     batches = [i * batch_size for i in range(0, (df_transactions.count() // batch_size) + 1)]
 
-    window_spec: WindowSpec = Window.partitionBy("date_trans", "account_to", "account_for").orderBy("Date")
+    window_spec: WindowSpec = Window.partitionBy("rowid").orderBy("Date")
     case_expr = F.coalesce(*[
         F.when(F.col("payment_currency") == col_name, F.col(col_name))
         for col_name in CURRENCIES.values()
     ])
 
+    row_count: int = 0
     for start_id in batches:
         end_id = start_id + batch_size
 
         df_batch = df_transactions.filter(
             (df_transactions["rowid"] >= start_id) & (df_transactions["rowid"] < end_id)
-        ).drop("rowid")
+        )
 
         df_joined: DataFrame = df_batch.join(
             df_exchanges,
@@ -114,7 +115,11 @@ def main(folder_path: str) -> None:
             .mode("append") \
             .parquet(transformed_folder)
         
+        row_count += df_computed.count()
+        
         df_computed.unpersist()
+    
+    print(f"Total row computed : {row_count}")
 
 if __name__ == "__main__":
     args: list[str] = sys.argv[1:]
