@@ -87,8 +87,7 @@ def main(folder_path: str) -> None:
         for col_name in CURRENCIES.values()
     ])
 
-    row_count: int = 0
-    for start_id in batches:
+    for index, start_id in enumerate(batches):
         end_id = start_id + batch_size
 
         df_batch = df_transactions.filter(
@@ -104,7 +103,8 @@ def main(folder_path: str) -> None:
         df_partitioned: DataFrame = df_joined.withColumn("rn", F.row_number().over(window_spec)) \
             .filter(F.col("rn") == 1) \
             .drop("rn") \
-            .drop("Date")
+            .drop("Date") \
+            .drop("rowid")
 
         df_computed: DataFrame = df_partitioned.withColumn(
             "exchange",
@@ -112,14 +112,10 @@ def main(folder_path: str) -> None:
         ).drop(*[column for column in CURRENCIES.values()])
 
         df_computed.write \
-            .mode("append") \
-            .parquet(transformed_folder)
-        
-        row_count += df_computed.count()
+            .mode("overwrite") \
+            .parquet(os.path.join(transformed_folder, str(index)))
         
         df_computed.unpersist()
-    
-    print(f"Total row computed : {row_count}")
 
 if __name__ == "__main__":
     args: list[str] = sys.argv[1:]
