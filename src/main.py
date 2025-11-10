@@ -21,7 +21,7 @@ def load_transactions(file_path: str, spark: SparkSession) -> DataFrame:
         "Amount Received": "amount_received", "Receiving Currency": "receiving_currency",
         "Amount Paid": "amount_paid", "Payment Currency": "payment_currency",
         "Payment Format": "payment_format", "Timestamp": "date_trans",
-        "Account2": "account_to", "Account4": "account_for"
+        "Account2": "account_to", "Account4": "account_for", "Is Laundering": "is_laundering"
     })
 
     df_date: DataFrame = df_renamed.withColumn("date_trans", F.to_date("date_trans", "yyyy/MM/dd HH:mm"))
@@ -41,16 +41,10 @@ def load_exchanges(file_path: str, spark: SparkSession, row: Row) -> DataFrame:
     df_renamed: DataFrame = df_selected.withColumnsRenamed(CURRENCIES)
 
     return df_renamed
-    
-def main(folder_path: str) -> None:
-    raw_folder: str = os.path.join(folder_path, "raw")
-    transformed_folder: str = os.path.join(folder_path, "transformed")
 
-    if os.path.exists(transformed_folder) == False:
-        os.mkdir(transformed_folder)
-
-    # Create a Spark session
-    spark: SparkSession = SparkSession.builder \
+def config_spark() -> SparkSession:
+    # Create a Spark session builder
+    spark_builder: SparkSession.Builder = SparkSession.builder \
         .appName("data-financial") \
         .config("spark.driver.memory", "8g") \
         .config("spark.executor.memory", "8g") \
@@ -62,7 +56,19 @@ def main(folder_path: str) -> None:
         .config("spark.sql.adaptive.skew.enabled", "true") \
         .config("spark.sql.autoBroadcastJoinThreshold", "10MB") \
         .config("spark.sql.shuffle.partitions", "100") \
-        .getOrCreate()
+    
+    spark: SparkSession = spark_builder.getOrCreate()
+    
+    return spark
+    
+def main(folder_path: str) -> None:
+    raw_folder: str = os.path.join(folder_path, "raw")
+    transformed_folder: str = os.path.join(folder_path, "transformed")
+
+    if os.path.exists(transformed_folder) == False:
+        os.mkdir(transformed_folder)
+
+    spark = config_spark()
     
     df_transactions: DataFrame = load_transactions(
         file_path=os.path.join(raw_folder, "HI-Medium_Trans.csv"),
