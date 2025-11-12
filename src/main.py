@@ -52,7 +52,7 @@ def config_spark() -> SparkSession:
         .config("spark.executor.memory", "8g") \
         .config("spark.memory.fraction", "0.6") \
         .config("spark.memory.offHeap.enabled", "true") \
-        .config("spark.memory.offHeap.size", "7g") \
+        .config("spark.memory.offHeap.size", "8g") \
         .config("spark.sql.adaptive.enabled", "true") \
         .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
         .config("spark.sql.adaptive.skew.enabled", "true") \
