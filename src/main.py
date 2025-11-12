@@ -24,16 +24,10 @@ def load_transactions(file_path: str, spark: SparkSession) -> DataFrame:
         "Account2": "account_to", "Account4": "account_for", "Is Laundering": "is_laundering"
     })
 
-    df.unpersist()
-
     df_date: DataFrame = df_renamed.withColumn("date_trans", F.to_date("date_trans", "yyyy/MM/dd HH:mm"))
-
-    df_renamed.unpersist()
 
     window_spec: WindowSpec = Window.orderBy(F.monotonically_increasing_id())
     df_rowid: DataFrame = df_date.withColumn("rowid", F.row_number().over(window_spec))
-
-    df_date.unpersist()
 
     return df_rowid
 
@@ -45,12 +39,8 @@ def load_exchanges(file_path: str, spark: SparkSession, row: Row) -> DataFrame:
 
     df_selected: DataFrame = df.filter((df["Date"] >= row["min_date"]) & (df["Date"] <= row["max_date"])) \
         .select(target_columns)
-    
-    df.unpersist()
 
     df_renamed: DataFrame = df_selected.withColumnsRenamed(CURRENCIES)
-
-    df_selected.unpersist()
 
     return df_renamed
 
@@ -118,15 +108,11 @@ def main(folder_path: str) -> None:
             "left"
         )
 
-        df_batch.unpersist()
-
         df_partitioned: DataFrame = df_joined.withColumn("rn", F.row_number().over(window_spec)) \
             .filter(F.col("rn") == 1) \
             .drop("rn") \
             .drop("Date") \
             .drop("rowid")
-        
-        df_joined.unpersist()
 
         df_computed: DataFrame = df_partitioned.withColumn(
             "exchange",
