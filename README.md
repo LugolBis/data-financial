@@ -23,7 +23,7 @@ flowchart LR
         B
     end
 
-    subgraph Processing [RAM]
+    subgraph Processing [Memory]
         C
     end
 
@@ -33,7 +33,7 @@ flowchart LR
         D2
     end
 
-    subgraph DBInMemory [RAM]
+    subgraph DBInMemory [Memory]
         E
     end
 
@@ -69,4 +69,5 @@ I used Datasets from **Kaggle**.
 
 - [IBM Transactions for Anti Money Laundering (AML)](https://www.kaggle.com/datasets/ealtman2019/ibm-transactions-for-anti-money-laundering-aml)
 - [Major Currency Exchange Rates](https://www.kaggle.com/datasets/weirdanalyst/currency-exchange-rates-since-2000-01-03)
+
 
