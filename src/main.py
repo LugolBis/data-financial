@@ -1,10 +1,10 @@
 import sys
-from pyspark.sql import SparkSession
-from pyspark.sql import functions as F
-from pyspark.sql import Window, WindowSpec
-from pyspark.sql import Row
-from pyspark.sql.dataframe import DataFrame
 import os
+from datetime import datetime
+import datafusion
+import pandas as pd
+from datafusion import RuntimeEnvBuilder, SessionConfig, SessionContext, DataFrame
+from datafusion import lit, functions as F
 
 CURRENCIES: dict[str, str] = {
     'JPY': 'Yen', 'GBP': 'UK Pound', 'AUD': 'Australian Dollar', 'MXN': 'Mexican Peso',
@@ -13,118 +13,152 @@ CURRENCIES: dict[str, str] = {
     'RUB': 'Ruble'
 }
 
-def load_transactions(file_path: str, spark: SparkSession) -> DataFrame:
-    df: DataFrame = spark.read.csv(path=file_path, header=True, inferSchema=True)
+def load_transactions(file_path: str, ctx: SessionContext) -> DataFrame:
+    df: DataFrame = ctx.read_csv(file_path, has_header=True)
 
-    df_renamed: DataFrame = df.withColumnsRenamed({
-        "From Bank": "from_bank", "To Bank": "to_bank",
-        "Amount Received": "amount_received", "Receiving Currency": "receiving_currency",
-        "Amount Paid": "amount_paid", "Payment Currency": "payment_currency",
-        "Payment Format": "payment_format", "Timestamp": "date_trans",
-        "Account2": "account_to", "Account4": "account_for", "Is Laundering": "is_laundering"
-    })
+    df_renamed: DataFrame = df.with_column_renamed("From Bank", "from_bank") \
+        .with_column_renamed("To Bank", "to_bank") \
+        .with_column_renamed("Amount Received", "amount_received") \
+        .with_column_renamed("Receiving Currency", "receiving_currency") \
+        .with_column_renamed("Amount Paid", "amount_paid") \
+        .with_column_renamed("Payment Currency", "payment_currency") \
+        .with_column_renamed("Payment Format", "payment_format") \
+        .with_column_renamed("Account2", "account_to") \
+        .with_column_renamed("Account4", "account_for") \
+        .with_column_renamed("Is Laundering", "is_laundering")
 
-    df_date: DataFrame = df_renamed.withColumn("date_trans", F.to_date("date_trans", "yyyy/MM/dd HH:mm"))
+    df_date: DataFrame = df_renamed.with_column(
+        "date_trans",
+        F.date_trunc(lit("yyyy/MM/dd"), F.col("Timestamp"))
+    )
 
-    window_spec: WindowSpec = Window.orderBy(F.monotonically_increasing_id())
-    df_rowid: DataFrame = df_date.withColumn("rowid", F.row_number().over(window_spec))
-
+    df_rowid: DataFrame = df_date.with_column(
+        "rowid",
+        F.row_number()
+    )
+    
     return df_rowid
 
-def load_exchanges(file_path: str, spark: SparkSession, row: Row) -> DataFrame:
-    df: DataFrame = spark.read.csv(path=file_path, header=True, inferSchema=True)
+def load_exchanges(file_path: str, ctx: SessionContext, min_date: datetime, max_date: datetime) -> DataFrame:
+    df: DataFrame = ctx.read_csv(file_path, has_header=True)
 
-    target_columns: list[str] = [v for v in CURRENCIES.keys()]
-    target_columns.append("Date")
+    df_filtered: DataFrame = df.filter(
+        (F.col("Date") >= lit(min_date.strftime("%Y/%m/%d"))) &
+        (F.col("Date") <= lit(max_date.strftime("%Y/%m/%d")))
+    )
 
-    df_selected: DataFrame = df.filter((df["Date"] >= row["min_date"]) & (df["Date"] <= row["max_date"])) \
-        .select(target_columns)
+    target_columns: list[str] = [key for key in CURRENCIES.keys()] + ["Date"]
+    df_selected: DataFrame = df_filtered.select(*target_columns)
 
-    df_renamed: DataFrame = df_selected.withColumnsRenamed(CURRENCIES)
-
+    select_exprs = [F.col("Date")]
+    for curr_key, curr_value in CURRENCIES.items():
+        select_exprs.append(F.col(curr_key).alias(curr_value))
+    
+    df_renamed: DataFrame = df_selected.select(*select_exprs)
+    
     return df_renamed
 
-def config_spark() -> SparkSession:
-    # Create a Spark session builder
-    spark_builder: SparkSession.Builder = SparkSession.builder \
-        .appName("data-financial") \
-        .config("spark.driver.memory", "8g") \
-        .config("spark.executor.memory", "8g") \
-        .config("spark.memory.fraction", "0.6") \
-        .config("spark.memory.offHeap.enabled", "true") \
-        .config("spark.memory.offHeap.size", "8g") \
-        .config("spark.sql.adaptive.enabled", "true") \
-        .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
-        .config("spark.sql.adaptive.skew.enabled", "true") \
-        .config("spark.sql.autoBroadcastJoinThreshold", "10MB") \
-        .config("spark.sql.shuffle.partitions", "100") \
+def config_datafusion() -> SessionContext:
+    """Configuration de DataFusion"""
+    config: SessionConfig = SessionConfig() \
+        .with_batch_size(4096) \
+        .with_target_partitions(4) \
+        .with_parquet_pruning(True)
+
+    runtime: RuntimeEnvBuilder = RuntimeEnvBuilder() \
+        .with_greedy_memory_pool(8 * 1024 * 1024 * 1024) \
+        .with_fair_spill_pool(1610612736) \
+        .with_disk_manager_os()
+
+    ctx: SessionContext = SessionContext(config, runtime)
     
-    spark: SparkSession = spark_builder.getOrCreate()
-    
-    return spark
-    
+    return ctx
+
 def main(folder_path: str) -> None:
     raw_folder: str = os.path.join(folder_path, "raw")
     transformed_folder: str = os.path.join(folder_path, "transformed")
 
-    if os.path.exists(transformed_folder) == False:
-        os.mkdir(transformed_folder)
+    if not os.path.exists(transformed_folder):
+        os.makedirs(transformed_folder)
 
-    spark = config_spark()
-    
+    ctx: SessionContext = config_datafusion()
+
     df_transactions: DataFrame = load_transactions(
         file_path=os.path.join(raw_folder, "HI-Medium_Trans.csv"),
-        spark=spark
+        ctx=ctx
     )
 
-    df_exchanges: DataFrame = load_exchanges(
+    min_max_df: DataFrame = df_transactions.aggregate(
+        [],
+        [
+            F.min(F.col("date_trans")).alias("min_date"),
+            F.max(F.col("date_trans")).alias("max_date")
+        ]
+    ).limit(1)
+
+    min_max_pandas: pd.DataFrame = min_max_df.to_pandas()
+    min_date = min_max_pandas["min_date"].iloc[0].to_pydatetime()
+    max_date = min_max_pandas["max_date"].iloc[0].to_pydatetime()
+    
+    df_exchanges = load_exchanges(
         file_path=os.path.join(raw_folder, "currency_exchange_rates.csv"),
-        spark=spark,
-        row=df_transactions.select(
-            F.min("date_trans").alias("min_date"),
-            F.max("date_trans").alias("max_date")
-        ).collect()[0]
+        ctx=ctx,
+        min_date=min_date,
+        max_date=max_date
     )
 
-    batch_size = 500_000
-    batches = [i * batch_size for i in range(0, (df_transactions.count() // batch_size) + 1)]
+    batch_size: int = 500_000
+    total_count: int = df_transactions.count()
+    batches: range = range(0, total_count, batch_size)
 
-    window_spec: WindowSpec = Window.partitionBy("rowid").orderBy("Date")
-    case_expr = F.coalesce(*[
-        F.when(F.col("payment_currency") == col_name, F.col(col_name))
-        for col_name in CURRENCIES.values()
-    ])
+    case_expr: datafusion.Expr = F.coalesce(
+        *[
+            F.when(F.col("payment_currency") == lit(value), F.col("payment_currency"))
+                .otherwise(lit(None))
+            for value in CURRENCIES.values()
+        ],
+        lit(None)
+    )
 
     for index, start_id in enumerate(batches):
-        end_id = start_id + batch_size
-
-        df_batch = df_transactions.filter(
-            (df_transactions["rowid"] >= start_id) & (df_transactions["rowid"] < end_id)
+        end_id: int = start_id + batch_size
+        
+        df_batch: DataFrame = df_transactions.filter(
+            (F.col("rowid") >= lit(start_id)) & 
+            (F.col("rowid") < lit(end_id))
         )
 
         df_joined: DataFrame = df_batch.join(
             df_exchanges,
-            df_batch["date_trans"] <= df_exchanges["Date"],
-            "left"
+            ["date_trans <= Date"],
+            how="left"
         )
 
-        df_partitioned: DataFrame = df_joined.withColumn("rn", F.row_number().over(window_spec)) \
-            .filter(F.col("rn") == 1) \
-            .drop("rn") \
-            .drop("Date") \
-            .drop("rowid")
-
-        df_computed: DataFrame = df_partitioned.withColumn(
+        df_row_number: DataFrame = df_joined.with_column(
+            "rn",
+            F.row_number(
+                partition_by=F.col("rowid"),
+                order_by=F.col("Date")
+            )
+        )
+        
+        df_filtered: DataFrame = df_row_number.filter(F.col("rn") == 1) \
+            .drop("rn")
+        
+        df_computed: DataFrame = df_filtered.with_column(
             "exchange",
             F.col("amount_paid") * case_expr
         )
 
-        df_computed.select("date_trans", "from_bank", "account_to", "account_for", "to_bank", "amount_paid", "payment_currency", "exchange") \
-            .write \
-            .mode("overwrite") \
-            .parquet(os.path.join(transformed_folder, str(index)))
-        
-        df_computed.unpersist()
+        df_selected: DataFrame = df_computed.select(
+            "date_trans", "from_bank", "account_to", "account_for", 
+            "to_bank", "amount_paid", "payment_currency", "exchange"
+        )
+
+        df_selected.write_parquet(
+            os.path.join(transformed_folder, str(index)),
+            compression="snappy"
+        )
 
 if __name__ == "__main__":
     args: list[str] = sys.argv[1:]
