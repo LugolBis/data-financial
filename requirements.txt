@@ -1,1 +1,17 @@
+click==8.3.1
+cloudpickle==3.1.2
+dask==2025.11.0
 duckdb==1.4.2
+fsspec==2025.10.0
+locket==1.0.0
+numpy==2.3.5
+packaging==25.0
+pandas==2.3.3
+partd==1.4.2
+pyarrow==22.0.0
+python-dateutil==2.9.0.post0
+pytz==2025.2
+pyyaml==6.0.3
+six==1.17.0
+toolz==1.1.0
+tzdata==2025.2

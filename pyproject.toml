@@ -5,6 +5,8 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "dask>=2025.11.0",
+    "dask[array,distributed]>=2025.11.0",
     "duckdb>=1.4.2",
+    "pandas>=2.3.3",
+    "pyarrow>=22.0.0",
 ]
