@@ -61,9 +61,14 @@ def load_exchanges(
 ) -> DataFrame:
     df: DataFrame = ctx.read_csv(file_path, has_header=True)
 
-    df_filtered: DataFrame = df.filter(
-        (F.col("Date") >= lit(min_date.strftime("%Y/%m/%d"))) &
-        (F.col("Date") <= lit(max_date.strftime("%Y/%m/%d")))
+    df_casted: DataFrame = df.with_column(
+        "Date",
+        F.date_trunc(lit("day"), F.col("Date"))
+    )
+
+    df_filtered: DataFrame = df_casted.filter(
+        (F.col("Date") >= lit(min_date)) &
+        (F.col("Date") <= lit(max_date))
     )
 
     target_columns: list[datafusion.Expr] = [F.col(k).alias(v) for k, v in CURRENCIES.items()]
@@ -128,7 +133,7 @@ def main(folder_path: str) -> None:
 
     case_expr: datafusion.Expr = F.coalesce(
         *[
-            F.when(F.col("payment_currency") == lit(value), F.col("payment_currency"))
+            F.when(F.col("payment_currency") == lit(value), F.col(value))
                 .otherwise(lit(None))
             for value in CURRENCIES.values()
         ],
@@ -136,6 +141,8 @@ def main(folder_path: str) -> None:
     )
 
     for index, start_id in enumerate(batches):
+        print(f"Process the partition n°{index+1}/{batches}")
+
         end_id: int = start_id + batch_size
         
         df_batch: DataFrame = df_transactions.filter(
@@ -155,7 +162,7 @@ def main(folder_path: str) -> None:
                 partition_by=F.col("rowid"),
                 order_by=F.col("Date")
             )
-        )
+        ).drop("Date")
         
         df_filtered: DataFrame = df_row_number.filter(F.col("rn") == 1) \
             .drop("rn")
