@@ -66,16 +66,12 @@ def load_exchanges(
         (F.col("Date") <= lit(max_date.strftime("%Y/%m/%d")))
     )
 
-    target_columns: list[str] = [key for key in CURRENCIES.keys()] + ["Date"]
+    target_columns: list[datafusion.Expr] = [F.col(k).alias(v) for k, v in CURRENCIES.items()]
+    target_columns.append(F.col("Date"))
+    
     df_selected: DataFrame = df_filtered.select(*target_columns)
-
-    select_exprs = [F.col("Date")]
-    for curr_key, curr_value in CURRENCIES.items():
-        select_exprs.append(F.col(curr_key).alias(curr_value))
     
-    df_renamed: DataFrame = df_selected.select(*select_exprs)
-    
-    return df_renamed
+    return df_selected
 
 def config_datafusion() -> SessionContext:
     """Configuration de DataFusion"""
@@ -147,9 +143,9 @@ def main(folder_path: str) -> None:
             (F.col("rowid") < lit(end_id))
         )
 
-        df_joined: DataFrame = df_batch.join(
+        df_joined: DataFrame = df_batch.join_on(
             df_exchanges,
-            ["date_trans <= Date"],
+            F.col("date_trans") <= F.col("Date"),
             how="left"
         )
 
