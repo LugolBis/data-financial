@@ -1,5 +1,6 @@
 import sys
 import os
+import shutil
 from datetime import datetime
 import datafusion
 import pandas as pd
@@ -13,23 +14,39 @@ CURRENCIES: dict[str, str] = {
     'RUB': 'Ruble'
 }
 
+TRANSACTIONS_HEADERS: list[str] = [
+    "Timestamp",
+    "from_bank",
+    "account_to",
+    "to_bank",
+    "account_for",
+    "amount_received",
+    "receiving_currency",
+    "amount_paid",
+    "payment_currency",
+    "payment_format",
+    "is_laundering"
+]
+
+def rewrite_csv_headers(file_path: str, headers: list[str]):
+    tmp = "tmp.csv"
+    new_header = ",".join(headers) + "\n"
+
+    with open(file_path, "rb") as fin, open(tmp, "wb") as fout:
+        fin.readline()
+        fout.write(new_header.encode())
+
+        shutil.copyfileobj(fin, fout, length=1024*1024)
+
+    os.replace(tmp, file_path)
+
 def load_transactions(file_path: str, ctx: SessionContext) -> DataFrame:
-    df: DataFrame = ctx.read_csv(file_path, has_header=True)
+    rewrite_csv_headers(file_path, TRANSACTIONS_HEADERS)
+    df: DataFrame = ctx.read_csv(file_path, has_header=True, delimiter=",")
 
-    df_renamed: DataFrame = df.with_column_renamed("From Bank", "from_bank") \
-        .with_column_renamed("To Bank", "to_bank") \
-        .with_column_renamed("Amount Received", "amount_received") \
-        .with_column_renamed("Receiving Currency", "receiving_currency") \
-        .with_column_renamed("Amount Paid", "amount_paid") \
-        .with_column_renamed("Payment Currency", "payment_currency") \
-        .with_column_renamed("Payment Format", "payment_format") \
-        .with_column_renamed("Account2", "account_to") \
-        .with_column_renamed("Account4", "account_for") \
-        .with_column_renamed("Is Laundering", "is_laundering")
-
-    df_date: DataFrame = df_renamed.with_column(
+    df_date: DataFrame = df.with_column(
         "date_trans",
-        F.date_trunc(lit("yyyy/MM/dd"), F.col("Timestamp"))
+        F.date_trunc(lit("day"), F.to_timestamp(F.col("Timestamp"), lit("%Y/%m/%d %H:%M")))
     )
 
     df_rowid: DataFrame = df_date.with_column(
@@ -39,7 +56,9 @@ def load_transactions(file_path: str, ctx: SessionContext) -> DataFrame:
     
     return df_rowid
 
-def load_exchanges(file_path: str, ctx: SessionContext, min_date: datetime, max_date: datetime) -> DataFrame:
+def load_exchanges(
+    file_path: str, ctx: SessionContext, min_date: datetime, max_date: datetime
+) -> DataFrame:
     df: DataFrame = ctx.read_csv(file_path, has_header=True)
 
     df_filtered: DataFrame = df.filter(
@@ -94,7 +113,7 @@ def main(folder_path: str) -> None:
             F.min(F.col("date_trans")).alias("min_date"),
             F.max(F.col("date_trans")).alias("max_date")
         ]
-    ).limit(1)
+    ).select(F.col("min_date"), F.col("max_date"))
 
     min_max_pandas: pd.DataFrame = min_max_df.to_pandas()
     min_date = min_max_pandas["min_date"].iloc[0].to_pydatetime()
