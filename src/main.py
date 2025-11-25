@@ -82,8 +82,9 @@ def config_datafusion() -> SessionContext:
     """Configuration de DataFusion"""
     config: SessionConfig = SessionConfig() \
         .with_batch_size(4096) \
-        .with_target_partitions(4) \
-        .with_parquet_pruning(True)
+        .with_target_partitions(8) \
+        .with_parquet_pruning(True) \
+        .with_repartition_aggregations(True)
 
     runtime: RuntimeEnvBuilder = RuntimeEnvBuilder() \
         .with_greedy_memory_pool(8 * 1024 * 1024 * 1024) \
@@ -141,7 +142,7 @@ def main(folder_path: str) -> None:
     )
 
     for index, start_id in enumerate(batches):
-        print(f"Process the partition n°{index+1}/{batches}")
+        print(f"Process the partition n°{index+1}/{len(batches)}")
 
         end_id: int = start_id + batch_size
         
