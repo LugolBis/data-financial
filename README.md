@@ -64,10 +64,40 @@ At the end of the processing stage, the aggregated results are analyzed using Du
 - Apache Spark → Used to handle and process large-scale streaming and batch data efficiently across distributed systems.
 - DuckDB → Enables fast in-memory analytics directly on top of Parquet files, allowing high-performance querying without heavy infrastructure.
 
+## 📊​ Benchmark
+
+Context of this benchmark:
+- My laptop has the following spec :
+  - OS : CachyOS x86_64
+  - CPU : 11th Gen Intel(R) Core(TM) i7-1165G7 (8) @ 4.70 GHz
+  - GPU: Intel Iris Xe Graphics @ 1.30 GHz [Integrated]
+  - Memory : 8 GB of RAM
+- Dataset used:
+  - One CSV file of 3 GB
+  - One CSV file of 5.1 MB
+- Final result:
+  - 31.90 million rows
+  - 8 columns
+  - Stored as _Parquet_ files
+
+Performance comparison :
+
+|Ranked|Python module|Mean execution time|Number of partitions|
+|:-:|:-:|:-:|:-:|
+|1|Dask|~10 minutes|47|
+|2|Apache DataFusion|~23 minutes|64|
+|3|Apache Spark|~90 minutes|64|
+
+My laptop has limited RAM, and the entire data pipeline runs on a single machine.
+In this context, Dask performs better because it introduces less overhead than Spark, especially since Spark relies on the JVM, which is more resource-hungry.
+
+Dask is therefore a better fit for my use case.
+
 ## 📚​ Data Sources
 I used Datasets from **Kaggle**.
 
 - [IBM Transactions for Anti Money Laundering (AML)](https://www.kaggle.com/datasets/ealtman2019/ibm-transactions-for-anti-money-laundering-aml)
 - [Major Currency Exchange Rates](https://www.kaggle.com/datasets/weirdanalyst/currency-exchange-rates-since-2000-01-03)
+
 
 
