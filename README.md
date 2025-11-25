@@ -53,15 +53,15 @@ flowchart LR
 
 ## 🚀​ Project Overview
 
-This project leverages PyDask and its lazy evaluation model to process a large dataset of over 32 million financial transactions in batch mode. For each record, the pipeline computes the transaction amount converted into US Dollars (USD) using historical exchange rates.
+This project leverages Dask and its lazy evaluation model to process a large dataset of over 32 million financial transactions in batch mode. For each record, the pipeline computes the transaction amount converted into US Dollars (USD) using historical exchange rates.
 
 To handle such a large volume of data on a machine with limited hardware resources, the dataset is split into batches. Each batch is processed sequentially — the results are written to disk before moving to the next batch, allowing memory to be freed efficiently between operations.
 
-At the end of the processing stage, the aggregated results are analyzed using DuckDB, which provides fast, in-memory analytics on the processed data. This combination of PyDask for distributed batch computation and DuckDB for analytical queries ensures both scalability and performance, even on modest hardware.
+At the end of the processing stage, the aggregated results are analyzed using DuckDB, which provides fast, in-memory analytics on the processed data. This combination of Dask for distributed batch computation and DuckDB for analytical queries ensures both scalability and performance, even on modest hardware.
 
 ## 🛠️​ Tech Stack
 - Python → Offers great flexibility and simplicity for scripting, making it ideal for building and automating data workflows.
-- Apache Dask → Used to handle and process large-scale streaming and batch data efficiently across distributed systems.
+- Dask → Used to handle and process large-scale streaming and batch data efficiently across distributed systems.
 - DuckDB → Enables fast in-memory analytics directly on top of Parquet files, allowing high-performance querying without heavy infrastructure.
 
 ## 📚​ Data Sources
@@ -69,3 +69,4 @@ I used Datasets from **Kaggle**.
 
 - [IBM Transactions for Anti Money Laundering (AML)](https://www.kaggle.com/datasets/ealtman2019/ibm-transactions-for-anti-money-laundering-aml)
 - [Major Currency Exchange Rates](https://www.kaggle.com/datasets/weirdanalyst/currency-exchange-rates-since-2000-01-03)
+
