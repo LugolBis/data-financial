@@ -4,6 +4,8 @@ __data-financial__ is an optimized data pipeline designed to process large datas
 For this purpose, I selected a dataset of financial transactions (__32 million rows__) and combined it with another dataset containing historical currency exchange rates.
 The goal was to perform large-scale operations such as cross joins, partitioning, and other transformations efficiently.
 
+Why use __Dask__ ? [See the Benchmark results](https://github.com/LugolBis/data-financial?tab=readme-ov-file#-benchmark)
+
 ## 🔍​ Schema of the pipeline
 
 ```mermaid
@@ -69,4 +71,5 @@ I used Datasets from **Kaggle**.
 
 - [IBM Transactions for Anti Money Laundering (AML)](https://www.kaggle.com/datasets/ealtman2019/ibm-transactions-for-anti-money-laundering-aml)
 - [Major Currency Exchange Rates](https://www.kaggle.com/datasets/weirdanalyst/currency-exchange-rates-since-2000-01-03)
+
 
