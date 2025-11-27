@@ -1,6 +1,9 @@
-import duckdb
-from generate_query import get_files_path, generate_duckdb_query
 import os
+
+import duckdb
+
+from generate_query import generate_duckdb_query, get_files_path
+
 
 def stat_summary(folder: str, subquery: str) -> None:
     path: str = os.path.join(folder, "summary.csv")
@@ -8,10 +11,10 @@ def stat_summary(folder: str, subquery: str) -> None:
 
     duckdb.execute(query)
 
+
 def stat_currencies(folder: str, subquery: str) -> None:
     path: str = os.path.join(folder, "ratio.csv")
-    query: str = \
-        f"""COPY (
+    query: str = f"""COPY (
                 WITH subquery as (
                     {subquery}
                 ),
@@ -36,8 +39,9 @@ def stat_currencies(folder: str, subquery: str) -> None:
                 SELECT * FROM computed
             ) TO '{path}' (HEADER, DELIMITER ';');
         """
-    
+
     duckdb.execute(query)
+
 
 if __name__ == "__main__":
     current_folder = os.path.curdir
@@ -45,9 +49,13 @@ if __name__ == "__main__":
 
     files_path = get_files_path(data_folder, ".parquet")
     subquery: str = generate_duckdb_query(files_path, "read_parquet")[:-1]
-    
-    print("\nIn all the following data the column 'exchange' is the exchange between the currencies and the US Dollar.")
-    print("Moreover, keep in mind that the transactions are extracted from a Dataset of Transactions for AML.\n")
 
-    #stat_summary(data_folder, subquery)
+    print(
+        "\nIn all the following data the column 'exchange' is the exchange between the currencies and the US Dollar."
+    )
+    print(
+        "Moreover, keep in mind that the transactions are extracted from a Dataset of Transactions for AML.\n"
+    )
+
+    # stat_summary(data_folder, subquery)
     stat_currencies(data_folder, subquery)

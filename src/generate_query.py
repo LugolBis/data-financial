@@ -1,6 +1,7 @@
 import os
 import sys
 
+
 def get_files_path(folder_path: str, file_extension: str = ".parquet") -> list[str]:
     """Explore the folder and it's subfolder to construct the list of files path with the file_extension"""
     entries: list[str] = os.listdir(folder_path)
@@ -17,10 +18,16 @@ def get_files_path(folder_path: str, file_extension: str = ".parquet") -> list[s
 
     return files_path
 
-def generate_duckdb_query(files_path: list[str], load_function: str = "read_parquet") -> str:
+
+def generate_duckdb_query(
+    files_path: list[str], load_function: str = "read_parquet"
+) -> str:
     """Generate the DuckDB query to load all the files as a table."""
-    queries: list[str] = [f"SELECT * FROM {load_function}('{path}')" for path in files_path]
+    queries: list[str] = [
+        f"SELECT * FROM {load_function}('{path}')" for path in files_path
+    ]
     return "\nUNION ALL\n".join(queries) + ";"
+
 
 if __name__ == "__main__":
     args = sys.argv[1:]
