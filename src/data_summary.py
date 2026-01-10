@@ -57,5 +57,5 @@ if __name__ == "__main__":
         "Moreover, keep in mind that the transactions are extracted from a Dataset of Transactions for AML.\n"
     )
 
-    # stat_summary(data_folder, subquery)
+    stat_summary(data_folder, subquery)
     stat_currencies(data_folder, subquery)

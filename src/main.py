@@ -73,6 +73,13 @@ def config_dask() -> Client:
 
     return client
 
+def inequijoin(df_transactions: DataFrame, df_exchanges: DataFrame) -> DataFrame:
+    df_merged: DataFrame = df_transactions.merge(df_exchanges, how="cross")
+    
+    mask = df_merged["date_trans"] <= df_merged["Date"]
+    df_filtered: DataFrame = df_merged[mask].sort_values(["rowid", "Date"], ascending=False)
+
+    return df_filtered
 
 def calculate_exchange(row) -> Optional[float]:
     payment_currency = row["payment_currency"]
@@ -84,6 +91,22 @@ def calculate_exchange(row) -> Optional[float]:
     else:
         return None
 
+def transform(df_transactions: DataFrame, df_exchanges: DataFrame, selected_columns: list[str]) -> DataFrame:
+    df_joined: DataFrame = inequijoin(df_transactions, df_exchanges)
+
+    df_filtered: DataFrame = df_joined.drop_duplicates(
+        subset=["rowid"], keep="first"
+    )
+
+    df_computed: DataFrame = df_filtered.assign(
+        exchange=df_filtered.apply(
+            calculate_exchange, axis=1, meta={"exchange": "float64"}
+        )
+    )
+
+    df_selected: DataFrame = df_computed[selected_columns]
+
+    return df_selected
 
 def main(folder_path: str) -> None:
     raw_folder: str = os.path.join(folder_path, "raw")
@@ -109,6 +132,8 @@ def main(folder_path: str) -> None:
         max_date=max_date,
     )
 
+    df_exchanges.persist()
+
     n_partitions: int = df_transactions.npartitions
     selected_columns = [
         "date_trans",
@@ -120,32 +145,32 @@ def main(folder_path: str) -> None:
         "payment_currency",
         "exchange",
     ]
+    meta_data = {**df_transactions.dtypes.to_dict(), "exchange": "float64"}
+    meta_data = {key: value for key, value in meta_data.items() if key in selected_columns}
 
+    df_transactions.map_partitions(
+        transform,
+        df_exchanges=df_exchanges,
+        selected_columns=selected_columns,
+        meta=meta_data
+    )
+
+    output_path = os.path.join(transformed_folder, f"transactions")
+    df_transactions.to_parquet(
+        output_path, engine="pyarrow", write_index=False, overwrite=True
+    )
+
+    """
     for index in range(n_partitions):
         print(f"Process the partition n°{index + 1}/{n_partitions}")
 
         df_batch: DataFrame = df_transactions.get_partition(index)
 
-        df_joined: DataFrame = dd.merge(
-            df_batch, df_exchanges, left_on="date_trans", right_on="Date", how="left"
-        )
-
-        df_filtered: DataFrame = df_joined.drop_duplicates(
-            subset=["rowid"], keep="first"
-        )
-
-        df_computed: DataFrame = df_filtered.assign(
-            exchange=df_filtered.apply(
-                calculate_exchange, axis=1, meta=("exchange", "float64")
-            )
-        )
-
-        df_selected: DataFrame = df_computed[selected_columns]
-
         output_path = os.path.join(transformed_folder, f"partition_{index}")
-        df_selected.to_parquet(
+        df_batch.to_parquet(
             output_path, engine="pyarrow", write_index=False, overwrite=True
         )
+    """
 
     client.close()
 
