@@ -84,20 +84,20 @@ Performance comparison :
 
 |Ranked|Python module|Mean execution time|Number of partitions|
 |:-:|:-:|:-:|:-:|
-|1|Dask|~10 minutes|47|
-|2|Apache DataFusion|~23 minutes|64|
-|3|Apache Spark|~90 minutes|64|
+|1|Apache DataFusion|~23 minutes|64|
+|2|Apache Spark|~90 minutes|64|
 
 My laptop has limited RAM, and the entire data pipeline runs on a single machine.
-In this context, Dask performs better because it introduces less overhead than Spark, especially since Spark relies on the JVM, which is more resource-hungry.
+In this context, Apache Datafusion performs better because it introduces less overhead than Spark, especially since Spark relies on the JVM, which is more resource-hungry.
 
-Dask is therefore a better fit for my use case.
+Apache DataFusion is therefore a better fit for my use case.
 
 ## 📚​ Data Sources
 I used Datasets from **Kaggle**.
 
 - [IBM Transactions for Anti Money Laundering (AML)](https://www.kaggle.com/datasets/ealtman2019/ibm-transactions-for-anti-money-laundering-aml)
 - [Major Currency Exchange Rates](https://www.kaggle.com/datasets/weirdanalyst/currency-exchange-rates-since-2000-01-03)
+
 
 
 
