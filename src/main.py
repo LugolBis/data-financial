@@ -82,6 +82,10 @@ def main(folder_path: str) -> None:
         file_path=os.path.join(raw_folder, "currency_exchange_rates.csv")
     )
 
+    row_count = lf_transactions.count().collect(engine="streaming").row(0)[0]
+    batch_size = 500_000
+    batches = [i * batch_size for i in range(0, (row_count // batch_size) + 1)]
+
     case_expr = pl.coalesce(
         *[
             pl.when(pl.col("payment_currency") == col_name)
@@ -91,31 +95,41 @@ def main(folder_path: str) -> None:
         ]
     )
 
-    lf_joined: LazyFrame = lf_transactions.join_where(
-        lf_exchanges, pl.col("date_trans") <= pl.col("Date")
-    )
+    for index, start_id in enumerate(batches):
+        end_id = start_id + batch_size
 
-    lf_partitioned: LazyFrame = (
-        lf_joined.group_by(["rowid"]).first().drop("Date").drop("rowid")
-    )
+        lf_batch: LazyFrame = lf_transactions.filter(
+            (pl.col("rowid") >= start_id) & (pl.col("rowid") < end_id)
+        )
 
-    lf_computed: LazyFrame = lf_partitioned.with_columns(
-        (pl.col("amount_paid") * case_expr).alias("exchange")
-    )
+        lf_joined: LazyFrame = lf_batch.join_where(
+            lf_exchanges, pl.col("date_trans") <= pl.col("Date")
+        )
 
-    lf_selected: LazyFrame = lf_computed.select(
-        "date_trans",
-        "from_bank",
-        "account_to",
-        "account_for",
-        "to_bank",
-        "amount_paid",
-        "payment_currency",
-        "exchange",
-    )
+        lf_partitioned: LazyFrame = (
+            lf_joined.group_by(["rowid"]).first().drop("Date").drop("rowid")
+        )
 
-    df: DataFrame = lf_selected.collect()
-    df.write_parquet(file=os.path.join(transformed_folder, "partition.parquet"))
+        lf_computed: LazyFrame = lf_partitioned.with_columns(
+            (pl.col("amount_paid") * case_expr).alias("exchange")
+        )
+
+        lf_selected: LazyFrame = lf_computed.select(
+            "date_trans",
+            "from_bank",
+            "account_to",
+            "account_for",
+            "to_bank",
+            "amount_paid",
+            "payment_currency",
+            "exchange",
+        )
+
+        df: DataFrame = lf_selected.collect(engine="streaming")
+
+        df.write_parquet(
+            file=os.path.join(transformed_folder, f"partition_{index}.parquet")
+        )
 
 
 if __name__ == "__main__":
