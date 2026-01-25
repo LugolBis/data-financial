@@ -40,13 +40,11 @@ def load_transactions(file_path: str) -> LazyFrame:
             "Payment Currency": "payment_currency",
             "Payment Format": "payment_format",
             "Timestamp": "date_trans",
-            "Account2": "account_to",
-            "Account4": "account_for",
+            "Account": "account_to",
+            "Account_duplicated_0": "account_for",
             "Is Laundering": "is_laundering",
         }
     )
-
-    # lf_date: LazyFrame = lf_renamed.with_columns(pl.col("date_trans").dt.date())
 
     return lf_renamed
 
@@ -87,17 +85,14 @@ def main(folder_path: str) -> None:
     case_expr = pl.coalesce(
         *[
             pl.when(pl.col("payment_currency") == col_name)
-            .then(pl.col(col_name))
+            .then(pl.col(col_name).cast(pl.Float64))
             .otherwise(None)
             for col_name in CURRENCIES.values()
         ]
     )
 
-    lf_joined: LazyFrame = lf_transactions.join(
-        lf_exchanges,
-        pl.col("date_trans") <= pl.col("Date"),
-        how="left",
-        maintain_order="left",
+    lf_joined: LazyFrame = lf_transactions.join_where(
+        lf_exchanges, pl.col("date_trans") <= pl.col("Date")
     )
 
     lf_partitioned: LazyFrame = (
@@ -120,7 +115,7 @@ def main(folder_path: str) -> None:
     )
 
     df: DataFrame = lf_selected.collect()
-    df.write_parquet(file=os.path.join(transformed_folder), row_group_size=500_000)
+    df.write_parquet(file=os.path.join(transformed_folder, "partition.parquet"))
 
 
 if __name__ == "__main__":
