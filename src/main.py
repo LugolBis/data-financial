@@ -57,10 +57,12 @@ def load_exchanges(file_path: str) -> LazyFrame:
         try_parse_dates=True,
     )
 
+    lf_filtered: LazyFrame = lf.group_by(pl.col("Date")).first()
+
     target_columns: list[str] = [v for v in CURRENCIES.keys()]
     target_columns.append("Date")
 
-    lf_selected: LazyFrame = lf.select(target_columns)
+    lf_selected: LazyFrame = lf_filtered.select(target_columns)
 
     lf_renamed: LazyFrame = lf_selected.rename(CURRENCIES)
 
@@ -83,7 +85,7 @@ def main(folder_path: str) -> None:
     )
 
     row_count = 32_000_000
-    batch_size = 250_000
+    batch_size = 200_000
     batches = [i * batch_size for i in range(0, (row_count // batch_size) + 1)]
 
     case_expr = pl.coalesce(
@@ -107,7 +109,11 @@ def main(folder_path: str) -> None:
         )
 
         lf_partitioned: LazyFrame = (
-            lf_joined.group_by(["rowid"]).first().drop("Date").drop("rowid")
+            lf_joined.sort("Date", descending=True)
+            .group_by(["rowid"])
+            .first()
+            .drop("Date")
+            .drop("rowid")
         )
 
         lf_computed: LazyFrame = lf_partitioned.with_columns(
