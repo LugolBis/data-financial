@@ -85,7 +85,7 @@ def main(folder_path: str) -> None:
     )
 
     row_count = 32_000_000
-    batch_size = 200_000
+    batch_size = 450_000
     batches = [i * batch_size for i in range(0, (row_count // batch_size) + 1)]
 
     case_expr = pl.coalesce(
@@ -109,11 +109,7 @@ def main(folder_path: str) -> None:
         )
 
         lf_partitioned: LazyFrame = (
-            lf_joined.sort("Date", descending=True)
-            .group_by(["rowid"])
-            .first()
-            .drop("Date")
-            .drop("rowid")
+            lf_joined.group_by(["rowid"]).first().drop("Date").drop("rowid")
         )
 
         lf_computed: LazyFrame = lf_partitioned.with_columns(
