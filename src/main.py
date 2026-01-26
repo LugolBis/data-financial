@@ -82,8 +82,8 @@ def main(folder_path: str) -> None:
         file_path=os.path.join(raw_folder, "currency_exchange_rates.csv")
     )
 
-    row_count = lf_transactions.count().collect(engine="streaming").row(0)[0]
-    batch_size = 500_000
+    row_count = 32_000_000
+    batch_size = 250_000
     batches = [i * batch_size for i in range(0, (row_count // batch_size) + 1)]
 
     case_expr = pl.coalesce(
@@ -130,6 +130,8 @@ def main(folder_path: str) -> None:
         df.write_parquet(
             file=os.path.join(transformed_folder, f"partition_{index}.parquet")
         )
+
+        print(f"Successfully write the partition n°{index}")
 
 
 if __name__ == "__main__":
