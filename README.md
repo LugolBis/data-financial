@@ -43,7 +43,7 @@ flowchart LR
     
     style A fill:#018f4a,stroke:#000000,color:#000000,stroke-width:1px
     style B fill:#018f4a,stroke:#000000,color:#000000,stroke-width:1px
-    style C fill:#e25a1c,stroke:#000000,color:#000000,stroke-width:1px
+    style C fill:#0075ff,stroke:#000000,color:#000000,stroke-width:1px
     style D0 fill:#55acee,stroke:#000000,color:#000000,stroke-width:1px
     style D1 fill:#55acee,stroke:#000000,color:#000000,stroke-width:1px
     style D2 fill:#55acee,stroke:#000000,color:#000000,stroke-width:1px
@@ -69,6 +69,7 @@ I used Datasets from **Kaggle**.
 
 - [IBM Transactions for Anti Money Laundering (AML)](https://www.kaggle.com/datasets/ealtman2019/ibm-transactions-for-anti-money-laundering-aml)
 - [Major Currency Exchange Rates](https://www.kaggle.com/datasets/weirdanalyst/currency-exchange-rates-since-2000-01-03)
+
 
 
 
