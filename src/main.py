@@ -1,8 +1,10 @@
+import datetime as dt
 import os
 import sys
 
-import polars as pl
-from polars import DataFrame, LazyFrame
+import numpy as np
+import pandas as pd
+from pandas import DataFrame
 
 CURRENCIES: dict[str, str] = {
     "JPY": "Yen",
@@ -21,17 +23,13 @@ CURRENCIES: dict[str, str] = {
 }
 
 
-def load_transactions(file_path: str) -> LazyFrame:
-    lf: LazyFrame = pl.scan_csv(
-        source=file_path,
-        has_header=True,
-        infer_schema=True,
-        row_index_name="rowid",
-        try_parse_dates=True,
+def load_transactions(file_path: str) -> DataFrame:
+    df: DataFrame = pd.read_csv(
+        file_path, parse_dates=["Timestamp"], dtype={"Amount Paid": "float64"}
     )
 
-    lf_renamed: LazyFrame = lf.rename(
-        {
+    df_renamed: DataFrame = df.rename(
+        columns={
             "From Bank": "from_bank",
             "To Bank": "to_bank",
             "Amount Received": "amount_received",
@@ -41,32 +39,40 @@ def load_transactions(file_path: str) -> LazyFrame:
             "Payment Format": "payment_format",
             "Timestamp": "date_trans",
             "Account": "account_to",
-            "Account_duplicated_0": "account_for",
+            "Account.1": "account_for",
             "Is Laundering": "is_laundering",
         }
     )
 
-    return lf_renamed
+    del df
+
+    df_renamed["date_trans"] = df_renamed["date_trans"].dt.floor("D")  # pyright: ignore[reportAttributeAccessIssue]
+    df_renamed["rowid"] = df_renamed.index
+
+    return df_renamed
 
 
-def load_exchanges(file_path: str) -> LazyFrame:
-    lf: LazyFrame = pl.scan_csv(
-        source=file_path,
-        has_header=True,
-        infer_schema=True,
-        try_parse_dates=True,
-    )
+def load_exchanges(file_path: str, date_min: dt.date, date_max: dt.date) -> DataFrame:
+    df: DataFrame = pd.read_csv(file_path, parse_dates=["Date"])
 
-    lf_filtered: LazyFrame = lf.group_by(pl.col("Date")).first()
+    df_partitioned: DataFrame = df.groupby("Date", as_index=False).first()
+
+    del df
+
+    df_filtered: DataFrame = df_partitioned[
+        (df_partitioned["Date"] >= date_min) & (df_partitioned["Date"] <= date_max)
+    ]
 
     target_columns: list[str] = [v for v in CURRENCIES.keys()]
     target_columns.append("Date")
 
-    lf_selected: LazyFrame = lf_filtered.select(target_columns)
+    df_selected: DataFrame = df_filtered[target_columns]
 
-    lf_renamed: LazyFrame = lf_selected.rename(CURRENCIES)
+    del df_filtered
 
-    return lf_renamed
+    df_renamed: DataFrame = df_selected.rename(columns=CURRENCIES)
+
+    return df_renamed
 
 
 def main(folder_path: str) -> None:
@@ -76,62 +82,68 @@ def main(folder_path: str) -> None:
     if not os.path.exists(transformed_folder):
         os.mkdir(transformed_folder)
 
-    lf_transactions: LazyFrame = load_transactions(
+    df_transactions: DataFrame = load_transactions(
         file_path=os.path.join(raw_folder, "HI-Medium_Trans.csv")
     )
 
-    lf_exchanges: LazyFrame = load_exchanges(
-        file_path=os.path.join(raw_folder, "currency_exchange_rates.csv")
+    date_min, date_max = df_transactions["date_trans"].agg(["min", "max"])
+
+    df_exchanges: DataFrame = load_exchanges(
+        file_path=os.path.join(raw_folder, "currency_exchange_rates.csv"),
+        date_min=date_min,
+        date_max=date_max,
     )
 
-    row_count = 32_000_000
+    row_count = len(df_transactions)
     batch_size = 450_000
     batches = [i * batch_size for i in range(0, (row_count // batch_size) + 1)]
-
-    case_expr = pl.coalesce(
-        *[
-            pl.when(pl.col("payment_currency") == col_name)
-            .then(pl.col(col_name).cast(pl.Float64))
-            .otherwise(None)
-            for col_name in CURRENCIES.values()
-        ]
-    )
 
     for index, start_id in enumerate(batches):
         end_id = start_id + batch_size
 
-        lf_batch: LazyFrame = lf_transactions.filter(
-            (pl.col("rowid") >= start_id) & (pl.col("rowid") < end_id)
+        df_batch: DataFrame = df_transactions[
+            (df_transactions["rowid"] >= start_id) & (df_transactions["rowid"] < end_id)
+        ]
+
+        df_joined: DataFrame = df_batch.merge(df_exchanges, how="cross")
+
+        del df_batch
+
+        df_partitioned: DataFrame = df_joined.groupby("rowid").first()
+
+        del df_joined
+
+        columns = df_partitioned["payment_currency"].to_numpy()
+        row_idx = np.arange(len(df_partitioned))
+
+        df_partitioned["exchange"] = (
+            df_partitioned.to_numpy()[
+                row_idx, df_partitioned.columns.get_indexer(columns)  # pyright: ignore[reportArgumentType]
+            ]
+            * df_partitioned["amount_paid"]
         )
 
-        lf_joined: LazyFrame = lf_batch.join_where(
-            lf_exchanges, pl.col("date_trans") <= pl.col("Date")
+        df_selected: DataFrame = df_partitioned[
+            [
+                "date_trans",
+                "from_bank",
+                "account_to",
+                "account_for",
+                "to_bank",
+                "amount_paid",
+                "payment_currency",
+                "exchange",
+            ]
+        ]
+
+        del df_partitioned
+
+        df_selected.to_parquet(
+            path=os.path.join(transformed_folder, f"partition_{index}.parquet"),
+            engine="pyarrow",
         )
 
-        lf_partitioned: LazyFrame = (
-            lf_joined.group_by(["rowid"]).first().drop("Date").drop("rowid")
-        )
-
-        lf_computed: LazyFrame = lf_partitioned.with_columns(
-            (pl.col("amount_paid") * case_expr).alias("exchange")
-        )
-
-        lf_selected: LazyFrame = lf_computed.select(
-            "date_trans",
-            "from_bank",
-            "account_to",
-            "account_for",
-            "to_bank",
-            "amount_paid",
-            "payment_currency",
-            "exchange",
-        )
-
-        df: DataFrame = lf_selected.collect(engine="streaming")
-
-        df.write_parquet(
-            file=os.path.join(transformed_folder, f"partition_{index}.parquet")
-        )
+        del df_selected
 
         print(f"Successfully write the partition n°{index}")
 
