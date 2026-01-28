@@ -20,6 +20,18 @@ CURRENCIES: dict[str, str] = {
     "RUB": "Ruble",
 }
 
+TRANSACTIONS_COLUMNS: list[str] = [
+    "rowid",
+    "date_trans",
+    "from_bank",
+    "account_to",
+    "account_for",
+    "to_bank",
+    "amount_paid",
+    "payment_currency",
+    "exchange",
+]
+
 
 def load_transactions(file_path: str) -> LazyFrame:
     lf: LazyFrame = pl.scan_csv(
@@ -49,7 +61,7 @@ def load_transactions(file_path: str) -> LazyFrame:
     return lf_renamed
 
 
-def load_exchanges(file_path: str) -> LazyFrame:
+def load_exchanges(file_path: str, df_meta: DataFrame) -> LazyFrame:
     lf: LazyFrame = pl.scan_csv(
         source=file_path,
         has_header=True,
@@ -57,7 +69,18 @@ def load_exchanges(file_path: str) -> LazyFrame:
         try_parse_dates=True,
     )
 
-    lf_filtered: LazyFrame = lf.group_by(pl.col("Date")).first()
+    date_min, date_max = df_meta.select("date_min", "date_max").row(0)
+
+    lf_filtered: LazyFrame = (
+        lf.filter(
+            pl.col("Date").is_between(
+                date_min,
+                date_max,
+            )
+        )
+        .group_by(pl.col("Date"))
+        .first()
+    )
 
     target_columns: list[str] = [v for v in CURRENCIES.keys()]
     target_columns.append("Date")
@@ -80,22 +103,20 @@ def main(folder_path: str) -> None:
         file_path=os.path.join(raw_folder, "HI-Medium_Trans.csv")
     )
 
+    df_meta: DataFrame = lf_transactions.select(
+        pl.len().alias("row_count"),
+        pl.col("date_trans").min().cast(pl.Date).alias("date_min"),
+        pl.col("date_trans").max().cast(pl.Date).alias("date_max"),
+    ).collect(engine="streaming")
+
     lf_exchanges: LazyFrame = load_exchanges(
-        file_path=os.path.join(raw_folder, "currency_exchange_rates.csv")
+        file_path=os.path.join(raw_folder, "currency_exchange_rates.csv"),
+        df_meta=df_meta,
     )
 
-    row_count = 32_000_000
-    batch_size = 450_000
+    row_count = df_meta["row_count"][0]
+    batch_size = 500_000
     batches = [i * batch_size for i in range(0, (row_count // batch_size) + 1)]
-
-    case_expr = pl.coalesce(
-        *[
-            pl.when(pl.col("payment_currency") == col_name)
-            .then(pl.col(col_name).cast(pl.Float64))
-            .otherwise(None)
-            for col_name in CURRENCIES.values()
-        ]
-    )
 
     for index, start_id in enumerate(batches):
         end_id = start_id + batch_size
@@ -108,12 +129,28 @@ def main(folder_path: str) -> None:
             lf_exchanges, pl.col("date_trans") <= pl.col("Date")
         )
 
-        lf_partitioned: LazyFrame = (
-            lf_joined.group_by(["rowid"]).first().drop("Date").drop("rowid")
+        lf_partitioned: LazyFrame = lf_joined.group_by(["rowid"]).first().drop("Date")
+
+        lf_unpivoted: LazyFrame = (
+            lf_partitioned.unpivot(
+                on=list(CURRENCIES.values()),
+                index=["rowid", "payment_currency", "amount_paid"],
+                variable_name="target_currency",
+                value_name="exchange_rate",
+            )
+            .filter(pl.col("payment_currency") == pl.col("target_currency"))
+            .group_by(["rowid"])
+            .first()
+            .with_columns(
+                (
+                    pl.col("exchange_rate").cast(pl.Float64) * pl.col("amount_paid")
+                ).alias("exchange")
+            )
+            .select(["rowid", "exchange"])
         )
 
-        lf_computed: LazyFrame = lf_partitioned.with_columns(
-            (pl.col("amount_paid") * case_expr).alias("exchange")
+        lf_computed: LazyFrame = lf_partitioned.join(
+            lf_unpivoted, on="rowid", how="left"
         )
 
         lf_selected: LazyFrame = lf_computed.select(
@@ -132,6 +169,8 @@ def main(folder_path: str) -> None:
         df.write_parquet(
             file=os.path.join(transformed_folder, f"partition_{index}.parquet")
         )
+
+        del df
 
         print(f"Successfully write the partition n°{index}")
 
