@@ -109,7 +109,11 @@ def main(folder_path: str) -> None:
 
         del df_batch
 
-        df_partitioned: DataFrame = df_joined.groupby("rowid", as_index=False).first()
+        df_partitioned: DataFrame = (
+            df_joined[df_joined["date_trans"] <= df_joined["Date"]]
+            .groupby("rowid", as_index=False)
+            .first()
+        )
 
         del df_joined
 
