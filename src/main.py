@@ -95,7 +95,7 @@ def main(folder_path: str) -> None:
     )
 
     row_count = len(df_transactions)
-    batch_size = 450_000
+    batch_size = 500_000
     batches = [i * batch_size for i in range(0, (row_count // batch_size) + 1)]
 
     for index, start_id in enumerate(batches):
@@ -109,19 +109,18 @@ def main(folder_path: str) -> None:
 
         del df_batch
 
-        df_partitioned: DataFrame = df_joined.groupby("rowid").first()
+        df_partitioned: DataFrame = df_joined.groupby("rowid", as_index=False).first()
 
         del df_joined
 
-        columns = df_partitioned["payment_currency"].to_numpy()
-        row_idx = np.arange(len(df_partitioned))
-
-        df_partitioned["exchange"] = (
-            df_partitioned.to_numpy()[
-                row_idx, df_partitioned.columns.get_indexer(columns)  # pyright: ignore[reportArgumentType]
-            ]
-            * df_partitioned["amount_paid"]
+        series = df_partitioned.apply(
+            lambda row: row[row["payment_currency"]] * row["amount_paid"]
+            if row["payment_currency"] in df_partitioned.columns
+            else np.nan,
+            axis=1,
         )
+
+        df_partitioned["exchange"] = series
 
         df_selected: DataFrame = df_partitioned[
             [
