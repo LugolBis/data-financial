@@ -1,17 +1,27 @@
-import sys
 import os
 import shutil
+import sys
 from datetime import datetime
+
 import datafusion
 import pandas as pd
-from datafusion import RuntimeEnvBuilder, SessionConfig, SessionContext, DataFrame
-from datafusion import lit, functions as F
+from datafusion import DataFrame, RuntimeEnvBuilder, SessionConfig, SessionContext, lit
+from datafusion import functions as F
 
 CURRENCIES: dict[str, str] = {
-    'JPY': 'Yen', 'GBP': 'UK Pound', 'AUD': 'Australian Dollar', 'MXN': 'Mexican Peso',
-    'ILS': 'Shekel', 'CNY': 'Yuan', 'CAD': 'Canadian Dollar', 'EUR': 'Euro',
-    'INR': 'Rupee', 'CHF': 'Swiss Franc', 'USD': 'US Dollar', 'BRL': 'Brazil Real',
-    'RUB': 'Ruble'
+    "JPY": "Yen",
+    "GBP": "UK Pound",
+    "AUD": "Australian Dollar",
+    "MXN": "Mexican Peso",
+    "ILS": "Shekel",
+    "CNY": "Yuan",
+    "CAD": "Canadian Dollar",
+    "EUR": "Euro",
+    "INR": "Rupee",
+    "CHF": "Swiss Franc",
+    "USD": "US Dollar",
+    "BRL": "Brazil Real",
+    "RUB": "Ruble",
 }
 
 TRANSACTIONS_HEADERS: list[str] = [
@@ -25,8 +35,9 @@ TRANSACTIONS_HEADERS: list[str] = [
     "amount_paid",
     "payment_currency",
     "payment_format",
-    "is_laundering"
+    "is_laundering",
 ]
+
 
 def rewrite_csv_headers(file_path: str, headers: list[str]):
     tmp = "tmp.csv"
@@ -36,9 +47,10 @@ def rewrite_csv_headers(file_path: str, headers: list[str]):
         fin.readline()
         fout.write(new_header.encode())
 
-        shutil.copyfileobj(fin, fout, length=1024*1024)
+        shutil.copyfileobj(fin, fout, length=1024 * 1024)
 
     os.replace(tmp, file_path)
+
 
 def load_transactions(file_path: str, ctx: SessionContext) -> DataFrame:
     rewrite_csv_headers(file_path, TRANSACTIONS_HEADERS)
@@ -46,15 +58,15 @@ def load_transactions(file_path: str, ctx: SessionContext) -> DataFrame:
 
     df_date: DataFrame = df.with_column(
         "date_trans",
-        F.date_trunc(lit("day"), F.to_timestamp(F.col("Timestamp"), lit("%Y/%m/%d %H:%M")))
+        F.date_trunc(
+            lit("day"), F.to_timestamp(F.col("Timestamp"), lit("%Y/%m/%d %H:%M"))
+        ),
     )
 
-    df_rowid: DataFrame = df_date.with_column(
-        "rowid",
-        F.row_number()
-    )
-    
+    df_rowid: DataFrame = df_date.with_column("rowid", F.row_number())
+
     return df_rowid
+
 
 def load_exchanges(
     file_path: str, ctx: SessionContext, min_date: datetime, max_date: datetime
@@ -62,38 +74,44 @@ def load_exchanges(
     df: DataFrame = ctx.read_csv(file_path, has_header=True)
 
     df_casted: DataFrame = df.with_column(
-        "Date",
-        F.date_trunc(lit("day"), F.col("Date"))
+        "Date", F.date_trunc(lit("day"), F.col("Date"))
     )
 
     df_filtered: DataFrame = df_casted.filter(
-        (F.col("Date") >= lit(min_date)) &
-        (F.col("Date") <= lit(max_date))
+        (F.col("Date") >= lit(min_date)) & (F.col("Date") <= lit(max_date))
     )
 
-    target_columns: list[datafusion.Expr] = [F.col(k).alias(v) for k, v in CURRENCIES.items()]
+    target_columns: list[datafusion.Expr] = [
+        F.col(k).alias(v) for k, v in CURRENCIES.items()
+    ]
     target_columns.append(F.col("Date"))
-    
+
     df_selected: DataFrame = df_filtered.select(*target_columns)
-    
+
     return df_selected
+
 
 def config_datafusion() -> SessionContext:
     """Configuration de DataFusion"""
-    config: SessionConfig = SessionConfig() \
-        .with_batch_size(4096) \
-        .with_target_partitions(8) \
-        .with_parquet_pruning(True) \
+    config: SessionConfig = (
+        SessionConfig()
+        .with_batch_size(4096)
+        .with_target_partitions(8)
+        .with_parquet_pruning(True)
         .with_repartition_aggregations(True)
+    )
 
-    runtime: RuntimeEnvBuilder = RuntimeEnvBuilder() \
-        .with_greedy_memory_pool(8 * 1024 * 1024 * 1024) \
-        .with_fair_spill_pool(1610612736) \
+    runtime: RuntimeEnvBuilder = (
+        RuntimeEnvBuilder()
+        .with_greedy_memory_pool(8 * 1024 * 1024 * 1024)
+        .with_fair_spill_pool(1610612736)
         .with_disk_manager_os()
+    )
 
     ctx: SessionContext = SessionContext(config, runtime)
-    
+
     return ctx
+
 
 def main(folder_path: str) -> None:
     raw_folder: str = os.path.join(folder_path, "raw")
@@ -105,87 +123,99 @@ def main(folder_path: str) -> None:
     ctx: SessionContext = config_datafusion()
 
     df_transactions: DataFrame = load_transactions(
-        file_path=os.path.join(raw_folder, "HI-Medium_Trans.csv"),
-        ctx=ctx
+        file_path=os.path.join(raw_folder, "HI-Medium_Trans.csv"), ctx=ctx
     )
 
-    min_max_df: DataFrame = df_transactions.aggregate(
+    df_meta: DataFrame = df_transactions.aggregate(
         [],
         [
+            F.count(F.col("date_trans")).alias("row_count"),
             F.min(F.col("date_trans")).alias("min_date"),
-            F.max(F.col("date_trans")).alias("max_date")
-        ]
-    ).select(F.col("min_date"), F.col("max_date"))
+            F.max(F.col("date_trans")).alias("max_date"),
+        ],
+    ).select(F.col("row_count"), F.col("min_date"), F.col("max_date"))
 
-    min_max_pandas: pd.DataFrame = min_max_df.to_pandas()
-    min_date = min_max_pandas["min_date"].iloc[0].to_pydatetime()
-    max_date = min_max_pandas["max_date"].iloc[0].to_pydatetime()
-    
+    df_pandas: pd.DataFrame = df_meta.to_pandas()
+    min_date = df_pandas["min_date"].iloc[0].to_pydatetime()
+    max_date = df_pandas["max_date"].iloc[0].to_pydatetime()
+
     df_exchanges = load_exchanges(
         file_path=os.path.join(raw_folder, "currency_exchange_rates.csv"),
         ctx=ctx,
         min_date=min_date,
-        max_date=max_date
+        max_date=max_date,
     )
 
     batch_size: int = 500_000
-    total_count: int = df_transactions.count()
+    total_count: int = df_pandas["row_count"].iloc[0]
     batches: range = range(0, total_count, batch_size)
+
+    del df_pandas
 
     case_expr: datafusion.Expr = F.coalesce(
         *[
-            F.when(F.col("payment_currency") == lit(value), F.col(value))
-                .otherwise(lit(None))
+            F.when(F.col("payment_currency") == lit(value), F.col(value)).otherwise(
+                lit(None)
+            )
             for value in CURRENCIES.values()
         ],
-        lit(None)
+        lit(None),
     )
 
     for index, start_id in enumerate(batches):
-        print(f"Process the partition n°{index+1}/{len(batches)}")
+        print(f"Process the partition n°{index + 1}/{len(batches)}")
 
         end_id: int = start_id + batch_size
-        
+
         df_batch: DataFrame = df_transactions.filter(
-            (F.col("rowid") >= lit(start_id)) & 
-            (F.col("rowid") < lit(end_id))
+            (F.col("rowid") >= lit(start_id)) & (F.col("rowid") < lit(end_id))
         )
 
         df_joined: DataFrame = df_batch.join_on(
-            df_exchanges,
-            F.col("date_trans") <= F.col("Date"),
-            how="left"
+            df_exchanges, F.col("date_trans") <= F.col("Date"), how="left"
         )
+
+        del df_batch
 
         df_row_number: DataFrame = df_joined.with_column(
-            "rn",
-            F.row_number(
-                partition_by=F.col("rowid"),
-                order_by=F.col("Date")
-            )
+            "rn", F.row_number(partition_by=F.col("rowid"), order_by=F.col("Date"))
         ).drop("Date")
-        
-        df_filtered: DataFrame = df_row_number.filter(F.col("rn") == 1) \
-            .drop("rn")
-        
+
+        del df_joined
+
+        df_filtered: DataFrame = df_row_number.filter(F.col("rn") == 1).drop("rn")
+
+        del df_row_number
+
         df_computed: DataFrame = df_filtered.with_column(
-            "exchange",
-            F.col("amount_paid") * case_expr
+            "exchange", F.col("amount_paid") * case_expr
         )
+
+        del df_filtered
 
         df_selected: DataFrame = df_computed.select(
-            "date_trans", "from_bank", "account_to", "account_for", 
-            "to_bank", "amount_paid", "payment_currency", "exchange"
+            "date_trans",
+            "from_bank",
+            "account_to",
+            "account_for",
+            "to_bank",
+            "amount_paid",
+            "payment_currency",
+            "exchange",
         )
 
+        del df_computed
+
         df_selected.write_parquet(
-            os.path.join(transformed_folder, str(index)),
-            compression="snappy"
+            os.path.join(transformed_folder, str(index)), compression="snappy"
         )
+
+        del df_selected
+
 
 if __name__ == "__main__":
     args: list[str] = sys.argv[1:]
-    
+
     if len(args) < 1:
         print("Usage : main.py <FOLDER_PATH>")
     else:
