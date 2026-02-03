@@ -58,14 +58,24 @@ def load_transactions(file_path: str, ctx: SessionContext) -> DataFrame:
 
     df_date: DataFrame = df.with_column(
         "date_trans",
-        F.date_trunc(
-            lit("day"), F.to_timestamp(F.col("Timestamp"), lit("%Y/%m/%d %H:%M"))
+        F.make_date(
+            F.date_part(
+                lit("year"), F.to_timestamp(F.col("Timestamp"), lit("%Y/%m/%d %H:%M"))
+            ),
+            F.date_part(
+                lit("month"),
+                F.to_timestamp(F.col("Timestamp"), lit("%Y/%m/%d %H:%M")),
+            ),
+            F.date_part(
+                lit("day"),
+                F.to_timestamp(F.col("Timestamp"), lit("%Y/%m/%d %H:%M")),
+            ),
         ),
     )
 
     df_rowid: DataFrame = df_date.with_column("rowid", F.row_number())
 
-    return df_rowid
+    return df_rowid.filter(F.col("payment_currency") == lit("Shekel")).limit(50)
 
 
 def load_exchanges(
@@ -136,8 +146,11 @@ def main(folder_path: str) -> None:
     ).select(F.col("row_count"), F.col("min_date"), F.col("max_date"))
 
     df_pandas: pd.DataFrame = df_meta.to_pandas()
-    min_date = df_pandas["min_date"].iloc[0].to_pydatetime()
-    max_date = df_pandas["max_date"].iloc[0].to_pydatetime()
+    min_date = df_pandas["min_date"].iloc[0]
+    max_date = df_pandas["max_date"].iloc[0]
+
+    print(min_date)
+    print(max_date)
 
     df_exchanges = load_exchanges(
         file_path=os.path.join(raw_folder, "currency_exchange_rates.csv"),
@@ -158,8 +171,7 @@ def main(folder_path: str) -> None:
                 lit(None)
             )
             for value in CURRENCIES.values()
-        ],
-        lit(None),
+        ]
     )
 
     for index, start_id in enumerate(batches):
