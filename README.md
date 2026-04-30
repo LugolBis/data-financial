@@ -8,15 +8,15 @@ The goal was to perform large-scale operations such as cross joins, partitioning
 
 ```mermaid
 flowchart LR
-    A[**Financial transactions** Dataset] -->|Streaming| C[**Python** <br>--- <br> **Spark**]
-    B[**Currencies exchange** Dataset] -->|Streaming| C[**Python** <br>--- <br> **Spark**]
+    A[Financial transactions Dataset] -->|Streaming| C[Python <br>-<br> Spark]
+    B[Currencies exchange Dataset] -->|Streaming| C[Python <br>-<br> Spark]
     C -->|Saving batch| D0[Parquet file]
-    C -->|Saving batch| D1[**.**<br>**.**<br> **.**]
+    C -->|Saving batch| D1[.<br>.<br> .]
     C -->|Saving batch| D2[Parquet file]
-    D0 -->|Loading| E[(**DuckDB**)]
-    D1 -->|Loading| E[(**DuckDB**)]
-    D2 -->|Loading| E[(**DuckDB**)]
-    E -->|Saving reports| F[**Reports** files]
+    D0 -->|Loading| E[(DuckDB)]
+    D1 -->|Loading| E[(DuckDB)]
+    D2 -->|Loading| E[(DuckDB)]
+    E -->|Saving reports| F[Reports files]
 
     subgraph Extraction [Storage]
         A
